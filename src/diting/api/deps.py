@@ -24,9 +24,7 @@ def set_pg_enabled(enabled: bool):
     _pg_enabled = enabled
 
 
-def get_graph_client() -> GraphClient:
-    if _graph_client is None:
-        raise RuntimeError("GraphClient not initialized")
+def get_graph_client() -> GraphClient | None:
     return _graph_client
 
 
@@ -45,22 +43,33 @@ async def get_db_session() -> AsyncGenerator[AsyncSession | None, None]:
 # ── Service 依赖 ─────────────────────────────────────────────────────────────
 
 def get_project_service(
-    graph: Annotated[GraphClient, Depends(get_graph_client)],
+    graph: Annotated[GraphClient | None, Depends(get_graph_client)],
     session: Annotated[AsyncSession | None, Depends(get_db_session)],
 ) -> ProjectService:
-    return ProjectService(session=session, graph=graph)
+    from diting.config import get_settings
+    cfg = get_settings()
+    return ProjectService(
+        session=session, graph=graph,
+        workspace=cfg.workspace, git_tokens=cfg.git_tokens,
+    )
 
 
 def get_scan_service(
-    graph: Annotated[GraphClient, Depends(get_graph_client)],
+    graph: Annotated[GraphClient | None, Depends(get_graph_client)],
     session: Annotated[AsyncSession | None, Depends(get_db_session)],
     projects: Annotated[ProjectService, Depends(get_project_service)],
 ) -> ScanService:
+    if graph is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=503, detail="Neo4j unavailable, scan not possible")
     return ScanService(graph, projects, session=session)
 
 
 def get_search_service(
-    graph: Annotated[GraphClient, Depends(get_graph_client)],
+    graph: Annotated[GraphClient | None, Depends(get_graph_client)],
     projects: Annotated[ProjectService, Depends(get_project_service)],
 ) -> SearchService:
+    if graph is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=503, detail="Neo4j unavailable, search not possible")
     return SearchService(graph, projects)

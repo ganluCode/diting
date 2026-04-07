@@ -42,12 +42,12 @@ class Project(Base):
 
     # 状态
     scan_status: Mapped[str] = mapped_column(String(20), default="pending")
-    scanned_at: Mapped[datetime | None] = mapped_column(DateTime)
-    enhanced_at: Mapped[datetime | None] = mapped_column(DateTime)
+    scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    enhanced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     schema_version: Mapped[int] = mapped_column(Integer, default=0)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # 关联
     summaries: Mapped[list["CodeSummaryCache"]] = relationship(back_populates="project", cascade="all, delete-orphan")
@@ -69,7 +69,7 @@ class CodeSummaryCache(Base):
     code_fingerprint: Mapped[str] = mapped_column(String(32), nullable=False)
     summary: Mapped[str | None] = mapped_column(Text)
     model_used: Mapped[str | None] = mapped_column(String(50))
-    generated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     commit_hash: Mapped[str | None] = mapped_column(String(40))
 
     project: Mapped["Project"] = relationship(back_populates="summaries")
@@ -91,10 +91,10 @@ class CodeLifecycle(Base):
     static_status: Mapped[str | None] = mapped_column(String(20))
     dynamic_status: Mapped[str | None] = mapped_column(String(20))
     verdict: Mapped[str | None] = mapped_column(String(20))
-    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     traffic_count: Mapped[int] = mapped_column(BigInteger, default=0)
     notes: Mapped[str | None] = mapped_column(Text)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     project: Mapped["Project"] = relationship(back_populates="lifecycles")
 
@@ -117,7 +117,7 @@ class BranchMatrix(Base):
     old_path: Mapped[str | None] = mapped_column(Text)
     new_path: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    discovered_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     project: Mapped["Project"] = relationship(back_populates="branches")
 
@@ -141,7 +141,7 @@ class AnalysisRun(Base):
     duration_ms: Mapped[int | None] = mapped_column(BigInteger)
     status: Mapped[str | None] = mapped_column(String(20))
     error_message: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     project: Mapped["Project"] = relationship(back_populates="runs")
 

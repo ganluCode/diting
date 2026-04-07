@@ -35,6 +35,15 @@ async def create_tables():
     logger.info("Database tables created")
 
 
+async def drop_tables():
+    """删除所有表（危险操作，会清空所有数据）"""
+    if _engine is None:
+        raise RuntimeError("Database not initialized. Call init_db() first.")
+    async with _engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    logger.info("Database tables dropped")
+
+
 async def close_db():
     """关闭引擎"""
     global _engine, _session_factory

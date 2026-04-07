@@ -19,32 +19,45 @@ async def lifespan(app: FastAPI):
     cfg = get_settings()
     ensure_plugins_loaded()
 
-    # Neo4j
-    client = GraphClient(cfg.neo4j)
-    await client.connect()
-    deps.set_graph_client(client)
+    # Neo4j（连接失败时降级运行，图谱相关接口不可用）
+    client: GraphClient | None = None
+    try:
+        _client = GraphClient(cfg.neo4j)
+        await _client.connect()
+        client = _client
+        deps.set_graph_client(client)
+    except Exception as e:
+        logger.warning("Neo4j unavailable, graph features disabled: %s", e)
 
     # PostgreSQL (optional)
     if cfg.pg.enabled:
-        from diting.storage.database import init_db, create_tables, close_db
-        await init_db(cfg.pg.async_dsn)
-        await create_tables()
-        deps.set_pg_enabled(True)
-        logger.info("PostgreSQL enabled")
+        try:
+            from diting.storage.database import init_db, create_tables, close_db
+            await init_db(cfg.pg.async_dsn)
+            await create_tables()
+            deps.set_pg_enabled(True)
+            logger.info("PostgreSQL connected: %s:%s", cfg.pg.host, cfg.pg.port)
+        except Exception as e:
+            logger.warning("PostgreSQL unavailable, PG features disabled: %s", e)
 
-    # Ensure indexes
-    from diting.core.services.project import ProjectService
-    ps = ProjectService(graph=client)
-    await ps.ensure_indexes()
+    # Ensure indexes (only if Neo4j available)
+    if client:
+        from diting.core.services.project import ProjectService
+        ps = ProjectService(graph=client)
+        await ps.ensure_indexes()
 
-    logger.info("DiTing API started (pg=%s)", "on" if cfg.pg.enabled else "off")
+    pg_ok = deps._pg_enabled
+    logger.info("DiTing API started (neo4j=%s, pg=%s)",
+                "on" if client else "off",
+                "on" if pg_ok else "off")
     yield
 
     # Shutdown
-    if cfg.pg.enabled:
+    if pg_ok:
         from diting.storage.database import close_db
         await close_db()
-    await client.close()
+    if client:
+        await client.close()
     logger.info("DiTing API stopped")
 
 
@@ -62,6 +75,7 @@ def create_app() -> FastAPI:
     if cfg.api.key:
         from diting.api.middleware import ApiKeyMiddleware
         app.add_middleware(ApiKeyMiddleware, api_key=cfg.api.key)
+        _enable_api_key_in_openapi(app)
 
     app.add_middleware(
         CORSMiddleware,
@@ -83,6 +97,34 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     return app
+
+
+def _enable_api_key_in_openapi(app: FastAPI):
+    """给 OpenAPI schema 注入 X-API-Key SecurityScheme，让 Swagger UI 显示 Authorize 按钮"""
+    from fastapi.openapi.utils import get_openapi
+
+    def custom_openapi():
+        if app.openapi_schema:
+            return app.openapi_schema
+        schema = get_openapi(
+            title=app.title,
+            version=app.version,
+            description=app.description,
+            routes=app.routes,
+        )
+        schema.setdefault("components", {})["securitySchemes"] = {
+            "ApiKeyAuth": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-API-Key",
+            }
+        }
+        # 全局应用（除了 /health /docs 等，它们在中间件里排除）
+        schema["security"] = [{"ApiKeyAuth": []}]
+        app.openapi_schema = schema
+        return schema
+
+    app.openapi = custom_openapi
 
 
 app = create_app()

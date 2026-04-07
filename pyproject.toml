@@ -7,7 +7,7 @@ name = "diting"
 version = "0.1.0"
 description = "Code knowledge graph system — multi-language, Neo4j, FastAPI + MCP"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     # Neo4j
     "neo4j>=5.0.0",
@@ -58,13 +58,13 @@ include = ["src/diting", "pyproject.toml", "README.md"]
 [tool.ruff]
 src = ["src"]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = false
 ignore_missing_imports = true
 

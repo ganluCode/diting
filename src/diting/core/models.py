@@ -9,8 +9,17 @@ class ProjectCreate(BaseModel):
     id: str = Field(..., description="项目唯一 ID（如 order-service）")
     name: str = Field("", description="可读名称，默认同 id")
     language: Literal["java", "python"] = Field(..., description="编程语言")
-    source_path: str = Field(..., description="源码/字节码根目录绝对路径")
+    source_path: str = Field(
+        ...,
+        description="源码根目录：绝对路径或相对 DITING_WORKSPACE 的相对路径",
+    )
     description: str = ""
+    repo_url: Optional[str] = Field(None, description="Git 仓库 URL（github/gitee 等）")
+    branch: Optional[str] = Field(None, description="默认分支，留空自动使用仓库默认分支")
+
+
+class CloneRequest(BaseModel):
+    force: bool = Field(False, description="若目标目录已存在则先删除")
 
 
 class ProjectUpdate(BaseModel):
@@ -27,7 +36,10 @@ class Project(BaseModel):
     name: str
     language: str
     source_path: str
+    resolved_path: Optional[str] = Field(None, description="source_path 解析后的完整绝对路径")
     description: str = ""
+    repo_url: Optional[str] = None
+    branch: Optional[str] = None
     scan_status: Literal["pending", "scanned", "enhanced", "error"] = "pending"
     scanned_at: Optional[datetime] = None
     enhanced_at: Optional[datetime] = None

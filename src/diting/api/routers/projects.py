@@ -5,7 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi_pagination import Page, paginate
 
 from diting.api.deps import get_project_service, get_scan_service
-from diting.core.models import EnhanceRequest, Project, ProjectCreate, ProjectUpdate, ScanRequest
+from diting.core.models import (
+    CloneRequest,
+    EnhanceRequest,
+    Project,
+    ProjectCreate,
+    ProjectUpdate,
+    ScanRequest,
+)
 from diting.core.services.project import ProjectService
 from diting.core.services.scan import ScanService
 
@@ -63,6 +70,22 @@ async def delete_project(
     if not project:
         raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
     await projects.delete(project_id)
+
+
+@router.post("/{project_id}/clone")
+async def clone_project(
+    project_id: str,
+    req: CloneRequest,
+    projects: Annotated[ProjectService, Depends(get_project_service)],
+):
+    """克隆项目仓库到本地工作区（根据项目的 repo_url / branch）"""
+    try:
+        path = await projects.clone(project_id, force=req.force)
+        return {"ok": True, "project_id": project_id, "path": str(path)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{project_id}/scan")

@@ -54,8 +54,13 @@ async def _cleanup(graph, session):
 
 
 def _make_project_service(graph, session):
+    from diting.config import get_settings
     from diting.core.services.project import ProjectService
-    return ProjectService(session=session, graph=graph)
+    cfg = get_settings()
+    return ProjectService(
+        session=session, graph=graph,
+        workspace=cfg.workspace, git_tokens=cfg.git_tokens,
+    )
 
 
 def _make_scan_service(graph, session, project_service):
@@ -85,6 +90,34 @@ def db_init():
         await create_tables()
         await close_db()
         console.print("[green]数据库初始化完成[/green]")
+
+    _run_async(_fn())
+
+
+@db_app.command("reset")
+def db_reset(
+    force: bool = typer.Option(False, "--force", "-f", help="跳过确认提示"),
+):
+    """重置 PostgreSQL 数据库（DROP + CREATE 所有表，会清空数据）"""
+    if not force:
+        confirm = typer.confirm("⚠️  这会删除所有表和数据，确认继续？")
+        if not confirm:
+            raise typer.Abort()
+
+    async def _fn():
+        from diting.config import get_settings
+        cfg = get_settings()
+        if not cfg.pg.enabled:
+            console.print("[red]PG_ENABLED=false，请在 .env 中启用 PostgreSQL[/red]")
+            raise typer.Exit(1)
+
+        from diting.storage.database import init_db, drop_tables, create_tables, close_db
+        await init_db(cfg.pg.async_dsn)
+        await drop_tables()
+        console.print("[yellow]已删除所有表[/yellow]")
+        await create_tables()
+        console.print("[green]已重新创建所有表[/green]")
+        await close_db()
 
     _run_async(_fn())
 
@@ -143,10 +176,15 @@ def project_list():
             if not projects:
                 console.print("[yellow]暂无项目[/yellow]")
                 return
-            table = Table("Name", "Language", "Status", "Source Path", "Scanned At")
+            table = Table("Name", "Language", "Status", "Source Path", "Repo", "Scanned At")
             for p in projects:
-                table.add_row(p.id, p.language, p.scan_status, p.source_path,
-                              str(p.scanned_at or "—"))
+                repo = (p.repo_url or "—")
+                if p.branch:
+                    repo += f" ({p.branch})"
+                table.add_row(
+                    p.id, p.language, p.scan_status, p.source_path,
+                    repo, str(p.scanned_at or "—"),
+                )
             console.print(table)
         finally:
             await _cleanup(graph, session)
@@ -158,7 +196,12 @@ def project_list():
 def project_add(
     project_name: str = typer.Argument(..., help="项目名称（唯一标识，如 order-service）"),
     language: str = typer.Option(..., "--language", "-l", help="java | python"),
-    path: str = typer.Option(..., "--path", "-p", help="源码根目录绝对路径"),
+    path: str = typer.Option(
+        "", "--path", "-p",
+        help="源码路径：绝对路径或相对 DITING_WORKSPACE 的相对路径；留空则用项目名作为相对目录",
+    ),
+    repo_url: str = typer.Option("", "--repo", "-r", help="Git 仓库 URL（github/gitee 等）"),
+    branch: str = typer.Option("", "--branch", "-b", help="分支，默认随仓库默认分支"),
     display_name: str = typer.Option("", "--name", "-n", help="可读展示名"),
     description: str = typer.Option("", "--desc", "-d", help="项目描述"),
 ):
@@ -171,11 +214,84 @@ def project_add(
             ps = _make_project_service(graph, session)
             await ps.ensure_indexes()
             p = await ps.create(ProjectCreate(
-                id=project_name, name=display_name or project_name,
-                language=language, source_path=path, description=description,
+                id=project_name,
+                name=display_name or project_name,
+                language=language,
+                source_path=path or project_name,
+                description=description,
+                repo_url=repo_url or None,
+                branch=branch or None,
             ))
             console.print(f"[green]项目已创建: {p.id} ({p.language})[/green]")
-            console.print(f"  路径: {p.source_path}")
+            console.print(f"  source_path: {p.source_path}")
+            if p.resolved_path:
+                console.print(f"  resolved:    {p.resolved_path}")
+            if p.repo_url:
+                console.print(f"  repo:        {p.repo_url}" + (f" ({p.branch})" if p.branch else ""))
+        finally:
+            await _cleanup(graph, session)
+
+    _run_async(_fn())
+
+
+@project_app.command("clone")
+def project_clone(
+    project_name: str = typer.Argument(..., help="项目名称"),
+    force: bool = typer.Option(False, "--force", "-f", help="目标目录已存在则先删除"),
+):
+    """克隆项目仓库到本地工作区（根据项目的 repo_url / branch）"""
+    async def _fn():
+        graph, session, cfg = await _connect()
+        try:
+            ps = _make_project_service(graph, session)
+            console.print(f"Cloning [bold]{project_name}[/bold]...")
+            path = await ps.clone(project_name, force=force)
+            console.print(f"[green]克隆完成[/green] → {path}")
+        except ValueError as e:
+            console.print(f"[red]{e}[/red]")
+            raise typer.Exit(1)
+        except RuntimeError as e:
+            console.print(f"[red]{e}[/red]")
+            raise typer.Exit(2)
+        finally:
+            await _cleanup(graph, session)
+
+    _run_async(_fn())
+
+
+@project_app.command("update")
+def project_update(
+    project_name: str = typer.Argument(..., help="项目名称"),
+    display_name: str = typer.Option(None, "--name", "-n", help="展示名"),
+    path: str = typer.Option(None, "--path", "-p", help="source_path（相对或绝对路径）"),
+    repo_url: str = typer.Option(None, "--repo", "-r", help="Git 仓库 URL"),
+    branch: str = typer.Option(None, "--branch", "-b", help="分支"),
+    description: str = typer.Option(None, "--desc", "-d", help="项目描述"),
+):
+    """更新项目字段（只更新传入的选项）"""
+    from diting.core.models import ProjectUpdate
+
+    async def _fn():
+        graph, session, cfg = await _connect()
+        try:
+            ps = _make_project_service(graph, session)
+            req = ProjectUpdate(
+                name=display_name,
+                source_path=path,
+                repo_url=repo_url,
+                branch=branch,
+                description=description,
+            )
+            # 过滤全 None 的情况
+            if not req.model_dump(exclude_none=True):
+                console.print("[yellow]没有要更新的字段[/yellow]")
+                raise typer.Exit(1)
+            p = await ps.update(project_name, req)
+            if not p:
+                console.print(f"[red]项目 '{project_name}' 不存在[/red]")
+                raise typer.Exit(1)
+            console.print(f"[green]已更新: {p.id}[/green]")
+            console.print(p.model_dump_json(indent=2))
         finally:
             await _cleanup(graph, session)
 

@@ -39,6 +39,12 @@ mcp:            ## 启动 MCP Server（stdio）
 project-list:   ## 列出所有项目
 	uv run diting project list
 
+# ── 文档 ──────────────────────────────────────────────────────────────────────
+export-openapi: ## 导出 OpenAPI schema 到 docs/openapi.json
+	@mkdir -p docs
+	uv run python -c "import json; from diting.api.app import create_app; print(json.dumps(create_app().openapi(), indent=2, ensure_ascii=False))" > docs/diting.json
+	@echo "Exported to docs/openapi.json"
+
 # ── 帮助 ──────────────────────────────────────────────────────────────────────
 help:           ## 显示帮助
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \

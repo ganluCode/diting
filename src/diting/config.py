@@ -15,7 +15,9 @@ _ENV_FILE = os.getenv("ENV_FILE", ".env")
 
 
 class Neo4jSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="NEO4J_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="NEO4J_", env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore",
+    )
 
     uri: str = "bolt://localhost:7687"
     user: str = "neo4j"
@@ -29,8 +31,6 @@ class Neo4jSettings(BaseSettings):
 
 
 class NL2CypherSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="LLM_", extra="ignore")
-
     nl2cypher_enabled: bool = Field(False, alias="NL2CYPHER_ENABLED")
     api_type: Literal["openai", "anthropic"] = "openai"
     api_key: str = ""
@@ -39,13 +39,17 @@ class NL2CypherSettings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="LLM_",
+        env_file=_ENV_FILE,
+        env_file_encoding="utf-8",
         extra="ignore",
         populate_by_name=True,
     )
 
 
 class APISettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="API_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="API_", env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore",
+    )
 
     host: str = "0.0.0.0"
     port: int = 8000
@@ -53,7 +57,9 @@ class APISettings(BaseSettings):
 
 
 class MCPSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="MCP_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="MCP_", env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore",
+    )
 
     transport: Literal["sse", "stdio"] = "sse"
     host: str = "0.0.0.0"
@@ -61,7 +67,9 @@ class MCPSettings(BaseSettings):
 
 
 class PgSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="PG_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="PG_", env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore",
+    )
 
     enabled: bool = False
     host: str = "localhost"
@@ -85,6 +93,28 @@ class PgSettings(BaseSettings):
 class Settings(BaseSettings):
     # 默认项目（工具调用时未传 project 参数时的兜底）
     default_project: str = Field("", alias="DEFAULT_PROJECT")
+
+    # 代码工作区根目录 — 所有项目 source_path 的默认基准
+    # 可以是绝对路径，留空则要求项目 source_path 为绝对路径
+    workspace: str = Field("", alias="DITING_WORKSPACE")
+
+    # Git 认证 Token（克隆私有仓库时按 host 注入 HTTPS URL）
+    github_token: str = Field("", alias="GITHUB_TOKEN")
+    gitee_token: str = Field("", alias="GITEE_TOKEN")
+    gitlab_token: str = Field("", alias="GITLAB_TOKEN")
+
+    @property
+    def git_tokens(self) -> dict[str, str]:
+        """构造 {host: token} 映射，给 ProjectService.clone 用"""
+        return {
+            host: token
+            for host, token in {
+                "github.com": self.github_token,
+                "gitee.com": self.gitee_token,
+                "gitlab.com": self.gitlab_token,
+            }.items()
+            if token
+        }
 
     # jQAssistant 版本
     jqassistant_version: str = Field("2.3.0", alias="JQASSISTANT_VERSION")
